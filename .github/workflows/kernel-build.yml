@@ -35,6 +35,7 @@ jobs:
             mkdir clang
             curl -Lsq "$CLANG_URL" -o clang.tgz
             tar -xzf clang.tgz -C clang
+            rm clang.tgz
           fi
           if [ ! -d x64 ]; then
             git clone --depth=1 "$GCC_x64" -b "$GCC_BRANCH" ./x64
@@ -50,7 +51,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export PATH="$WORK/clang/bin:$WORK/x64/bin:$WORK/x32/bin:/bin:$PATH"
+          export PATH="$WORK/clang/bin:$WORK/x64/bin:$WORK/x32/bin:$PATH"
           cd "$WORK/$KERNEL"
           make_fun() {
             make O=out ARCH=arm64 CC=clang HOSTCC=clang DTC=dtc \
