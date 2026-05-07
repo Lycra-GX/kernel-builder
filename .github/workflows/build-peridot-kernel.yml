@@ -1,0 +1,83 @@
+name: Build Poco F6 Kernel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4.1.7
+        with:
+          repository: Lycra-GX/dragonknight_kernel_peridot
+          path: kernel
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            android-sdk-libsparse-utils bc bison build-essential cpio curl default-jdk device-tree-compiler \
+            erofs-utils flex g++ gcc git gnupg gperf kmod libarchive-tools libelf-dev libgl1 \
+            libgl1-mesa-dev libncurses-dev libreadline-dev libssl-dev libtinfo6 libx11-dev \
+            libxml2-utils lz4 make openjdk-17-jdk openssl p7zip-full pahole python-is-python3 \
+            python3 python3-markdown repo tofrodos wget xsltproc xz-utils zip zlib1g-dev zstd
+          wget https://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb
+          sudo dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb
+
+      - name: Setup Neutron-Clang toolchain
+        run: |
+          set -euo pipefail
+          mkdir -p "${HOME}/toolchains/neutron-clang"
+          cd "${HOME}/toolchains/neutron-clang"
+          curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
+          chmod +x antman
+          bash antman -S
+          bash antman --patch=glibc
+
+      - name: Build kernel
+        run: |
+          set -euo pipefail
+          KERNEL_ROOT="${GITHUB_WORKSPACE}/kernel"
+          mkdir -p "${KERNEL_ROOT}/out" "${KERNEL_ROOT}/build"
+          export ARCH=arm64
+          export KBUILD_BUILD_USER="github-actions"
+          export PATH="${PATH}:${HOME}/toolchains/neutron-clang/bin"
+          export NEUTRON_PATH="${HOME}/toolchains/neutron-clang/bin"
+          export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}:${HOME}/toolchains/neutron-clang/lib"
+          export BUILD_CC="${NEUTRON_PATH}/clang"
+          BUILD_OPTIONS=(
+            -C "${KERNEL_ROOT}"
+            O="${KERNEL_ROOT}/out"
+            -j"$(nproc)"
+            ARCH=arm64
+            CROSS_COMPILE=aarch64-linux-gnu-
+            CLANG_TRIPLE=aarch64-linux-gnu-
+            CC="${BUILD_CC}"
+            LLVM=1
+            LLVM_IAS=1
+            AR="${NEUTRON_PATH}/llvm-ar"
+            NM="${NEUTRON_PATH}/llvm-nm"
+            LD="${NEUTRON_PATH}/ld.lld"
+            STRIP="${NEUTRON_PATH}/llvm-strip"
+            OBJCOPY="${NEUTRON_PATH}/llvm-objcopy"
+            OBJDUMP="${NEUTRON_PATH}/llvm-objdump"
+            READELF="${NEUTRON_PATH}/llvm-readelf"
+            HOSTCC="${NEUTRON_PATH}/clang"
+            HOSTCXX="${NEUTRON_PATH}/clang++"
+          )
+          make "${BUILD_OPTIONS[@]}" peridot_defconfig
+          make "${BUILD_OPTIONS[@]}" Image
+          cp "${KERNEL_ROOT}/out/arch/arm64/boot/Image" "${KERNEL_ROOT}/build/Image"
+
+      - name: Upload Image
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: peridot-kernel-image
+          path: kernel/build/Image
+          if-no-files-found: error
