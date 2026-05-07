@@ -1,0 +1,77 @@
+name: Kernel Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      KERNEL_SOURCE: "https://github.com/carlodandan/android_kernel_realme_sm7125"
+      KERNEL_BRANCH: "A13"
+      KERNEL_DEFCONFIG: "vendor/atoll-perf_defconfig"
+      CLANG_URL: "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2021/clang-r416183b.tar.gz"
+      GCC_x64: "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9"
+      GCC_x32: "https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9"
+      GCC_BRANCH: "master-kernel-build-2021"
+      WORK: ${{ github.workspace }}/work
+      KERNEL: "myKernel"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev libncurses-dev device-tree-compiler ccache rsync python3
+          sudo apt-get clean
+
+      - name: Fetch toolchains and kernel source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK"
+          cd "$WORK"
+          if [ ! -d clang ]; then
+            mkdir clang
+            curl -Lsq "$CLANG_URL" -o clang.tgz
+            tar -xzf clang.tgz -C clang
+          fi
+          if [ ! -d x64 ]; then
+            git clone --depth=1 "$GCC_x64" -b "$GCC_BRANCH" ./x64
+          fi
+          if [ ! -d x32 ]; then
+            git clone --depth=1 "$GCC_x32" -b "$GCC_BRANCH" ./x32
+          fi
+          if [ ! -d "$KERNEL" ]; then
+            git clone --depth=1 "$KERNEL_SOURCE" -b "$KERNEL_BRANCH" "$KERNEL"
+          fi
+
+      - name: Build kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$WORK/clang/bin:$WORK/x64/bin:$WORK/x32/bin:/bin:$PATH"
+          cd "$WORK/$KERNEL"
+          make_fun() {
+            make O=out ARCH=arm64 CC=clang HOSTCC=clang DTC=dtc \
+              CLANG_TRIPLE=aarch64-linux-gnu- \
+              CROSS_COMPILE=aarch64-linux-androidkernel- "$@"
+          }
+          make_fun "$KERNEL_DEFCONFIG"
+          make_fun -j"$(nproc --all)" 2>&1 | tee build.log
+
+      - name: Upload build log
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: ${{ env.WORK }}/${{ env.KERNEL }}/build.log
+
+      - name: Upload kernel artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-artifacts
+          path: |
+            ${{ env.WORK }}/${{ env.KERNEL }}/out/arch/arm64/boot/Image*
+            ${{ env.WORK }}/${{ env.KERNEL }}/out/arch/arm64/boot/dtbo.img
+            ${{ env.WORK }}/${{ env.KERNEL }}/out/arch/arm64/boot/dtb*
+          if-no-files-found: warn
