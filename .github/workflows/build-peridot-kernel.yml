@@ -33,14 +33,12 @@ jobs:
       - name: Setup Neutron-Clang toolchain
         run: |
           set -euo pipefail
-          if [ ! -x "${HOME}/toolchains/neutron-clang/bin/clang" ]; then
-            mkdir -p "${HOME}/toolchains/neutron-clang"
-            cd "${HOME}/toolchains/neutron-clang"
-            curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
-            chmod +x antman
-            bash antman -S
-            bash antman --patch=glibc
-          fi
+          mkdir -p "${HOME}/toolchains/neutron-clang"
+          cd "${HOME}/toolchains/neutron-clang"
+          curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
+          chmod +x antman
+          bash antman -S
+          bash antman --patch=glibc
 
       - name: Build kernel
         run: |
